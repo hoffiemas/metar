@@ -9,12 +9,7 @@ function getMetar($ICAO_Code)
    {
 
    // Filter um sicherzustellen, dass ein valider code eingegeben wurde
-
-   $opt = array(
-      "options" => array(
-         "regexp" => "/^[a-zA-Z]{4}$/"
-      )
-   );
+   $opt = array("options" => array("regexp" => "/^[a-zA-Z]{4}$/"));
    if (filter_var($ICAO_Code, FILTER_VALIDATE_REGEXP, $opt))
       {
       $ICAO_Code = strtoupper($ICAO_Code);
@@ -23,25 +18,26 @@ function getMetar($ICAO_Code)
       $contents = fread($handle, filesize($filename));
       fclose($handle);
       echo $contents;
-      if (strlen($contents) < 5)
-         {
-         myerror("Erhaltenes Metar nicht valide!");
-         }
-        else
-         {
-         $resRaw = preg_split("/\s+/", $contents);
-         array_pop($resRaw);
-         $translation = array();
-         $translation["airport"] = $resRaw[2]; //ICAO CODE der Station
-         $translation["month"] = substr($resRaw[0], 5, 2); //Monat
-         $translation["day"] = substr($resRaw[0], 8, 2); // Tag
-         $translation["year"] = substr($resRaw[0], 0, 4); // Jahr
-         $translation["timezone"] = strtoupper(substr($resRaw[3], 6, 1)); // Z = UTC
-
-         // In US Metars wird angegeben, ob die Werte automatisch erstellt werden, oder eine manuelle
-         // Korrektur erfolgt.
-
-         if (strtoupper($resRaw[4]) == "COR" || strtoupper($resRaw[4]) == "AUTO")
+      if (strlen($contents) < 5) {
+            myerror("Erhaltenes Metar nicht valide!");
+     } else {
+            $resRaw = preg_split("/\s+/", $contents);
+            decodeMetar(array_pop($resRaw));
+	}
+   }else {
+        myerror("ICAO-Code nicht valide");
+      }	
+			
+	function decodeMetar($resRaw){
+		$translation = array();
+		$translation["airport"] = $resRaw[2]; //ICAO CODE der Station
+		$translation["month"] = substr($resRaw[0], 5, 2); //Monat
+		$translation["day"] = substr($resRaw[0], 8, 2); // Tag
+		$translation["year"] = substr($resRaw[0], 0, 4); // Jahr
+		$translation["timezone"] = strtoupper(substr($resRaw[3], 6, 1)); // Z = UTC
+		// In US Metars wird angegeben, ob die Werte automatisch erstellt werden, oder eine manuelle
+        // Korrektur erfolgt.
+		if (strtoupper($resRaw[4]) == "COR" || strtoupper($resRaw[4]) == "AUTO")
             {
             $translation["correctionMode"] = strtoupper($resRaw[4]);
             $i = 5;
@@ -51,8 +47,8 @@ function getMetar($ICAO_Code)
             $translation["correctionMode"] = "none";
             $i = 4;
             }
-
-         // nächster Block ist der Wind
+		
+		// nächster Block ist der Wind
          // es gibt im Grunde die folgenden Möglichkeiten
          // a) 00000KMH  bzw. KT bzw. MPS
          // b) VRBdd(d)KMH bzw KT bzw MPS   d= ziffer  VRB = Variabel
@@ -165,16 +161,78 @@ function getMetar($ICAO_Code)
             $translation["windclear"] = $translation["windclear"] . ", Windrichtung schwankend zwischen {$translation["windfrom_a"]} und {$translation["windfrom_b"]} Grad.";
             $i++;
          }
+		
+		//Sicht decodieren
+		//einfacher US Fall
+		if((preg_match("/^\d{2}[S][M]$/gi", strtoupper($resRaw[$i])))){
+			$sicht = substr($x,0,2);
+			$translation["sichtClear"] = "Sicht {$sicht} SM.";	
+		//CAVOK Fall
+		}elseif(strtoupper($resRaw[$i])=="CAVOK"){
+			$translation["sichtClear"]= "Sicht 10 km und mehr.";
+		//US-Fall mit Bruchangabe	
+		}elseif(preg_match("/^\d\/\d[S][M]/gi", strtoupper($resRaw[$i]))){
+			$zaehler 	= (float)(substr($resRaw[$i],0,1));
+			$nenner		= (float)(substr($resRaw[$i],2,1));
+			$translation["sichtClear"]= "Sicht {$zaehler}/{$nenner} SM.";
+		}elseif(preg_match("/^\d{4}$/g", $resRaw[$i])){
+			$sichtweite= $resRaw[$i];
+			if($sichtweite=="9999"){
+				$translation["sichtClear"]="Sicht von 10 km oder mehr.";
+			}elseif($sichtweite=="0000"){
+				$translation["sichtClear"]="Sicht von unter 50 m.";
+			}else{
+				if(substr($sichtweite,0,1) =="0"){
+					$sichtweite= substr(sichtweite,1,3);
+					if (substr($sichtweite,0,1) =="0"){
+						$sichtweite= substr(sichtweite,1,2);
+					}
+				}
+				$translation["sichtClear"]="Sicht von {$sichtweite} m.";
+			}
+		}
+		
+		
+		}
+		
+		$translation["sichtClear"] = decodeVisibility($resRaw);
+	}
+		 
+function decodeVisibility($arr){
+//die angaben von Sichtweiten sind derart variantenreich, dass hier ein anderes Vorgehen gewählt werden muss
+	
+	$SichtClear = "";
+	foreach($arr as $x){
+		if (strtoupper($x)=="CAVOK"){
+			$SichtClear=$SichtClear . " Sicht 10 km und mehr.";
+		}
+		
+		if (preg_match("/^\d{2}[S][M]$/gi", strtoupper($x))){
+			$sicht = substr($x,0,2);
+			$SichtClear=$SichtClear . " Sicht {$sicht} SM.";
+		}
+		
+		if (preg_match("/^\d\/\d[S][M]/gi", strtoupper($x))){
+			$zaehler 	= (float)(substr($x,0,1));
+			$nenner		= (float)(substr($x,2,1));
+			$SichtClear=$SichtClear . " Sicht {$zaehler}/{$nenner} SM.";
+		}
+		unset($x);
+	}
+}
+         
+
+         
+		
+		
+		
+		
 
          var_dump($resRaw);
          var_dump($translation);
-         }
-      }
-     else
-      {
-      myerror("ICAO-Code nicht valide");
-      }
-   }
+         
+      
+   
 
 function unitUnifier($str_input)
    {
